@@ -19,7 +19,7 @@ def draw_mask_overlays(image, masks, scores=None, output_path=None, title_prefix
         title_prefix: Optional string to prepend to the title. If provided, creates a two-line title.
     """
     fig, ax = plt.subplots(1, figsize=(12, 9))
-    image = load_image(image)
+    image = load_image(image, convert_to_rgb=True)
     ax.imshow(image)
 
     # Create a color map for different masks

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import cv2
 import numpy as np
 import torch
@@ -7,7 +8,7 @@ from typing import Union
 
 
 def load_image(
-    image: Union[str, Image.Image, torch.Tensor, np.ndarray],
+    image: Union[str, Path, Image.Image, torch.Tensor, np.ndarray],
     *,
     drop_alpha: bool = False,
     normalize_dims: bool = False,
@@ -20,7 +21,7 @@ def load_image(
     Parameters
     ----------
     image:
-        Image path, PIL Image, NumPy array, or Torch tensor
+        Image path (str or pathlib.Path), PIL Image, NumPy array, or Torch tensor
     drop_alpha:
         Drop alpha channel if present (ignored if convert_to_rgb=True)
     normalize_dims:
@@ -37,13 +38,16 @@ def load_image(
     """
 
     # ---------- Load to NumPy ----------
-    if isinstance(image, str):
-        if not os.path.exists(image):
-            raise FileNotFoundError(f"Image file not found: {image}")
+    if isinstance(image, (str, Path)):
+        # Convert Path to string for cv2.imread compatibility
+        image_path = str(image) if isinstance(image, Path) else image
 
-        img = cv2.imread(image, cv2.IMREAD_UNCHANGED)
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"Image file not found: {image_path}")
+
+        img = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
         if img is None:
-            raise ValueError(f"Failed to read image: {image}")
+            raise ValueError(f"Failed to read image: {image_path}")
 
         # OpenCV loads as BGR / BGRA
         if convert_to_rgb:

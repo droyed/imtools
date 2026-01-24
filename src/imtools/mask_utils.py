@@ -4,8 +4,36 @@ from scipy.ndimage import binary_closing
 from skimage.segmentation import flood_fill
 
 
+def _extract_properties(regionprops_object):
+    """
+    Extract properties from a regionprops object
+    """
+    properties = []
+    for attr in dir(regionprops_object):
+        if attr.startswith('_'):
+            continue
+        try:
+            value = getattr(regionprops_object, attr)
+        except AttributeError:
+            continue
+        if callable(value):
+            continue
+        properties.append(attr)
+    sorted_properties = sorted(properties)
+    return sorted_properties
 
-def get_biggest_blob(mask: np.ndarray) -> np.ndarray:
+def _extract_info(regionprops_object):
+    """
+    Extract information from a regionprops object
+    """
+    available_props = _extract_properties(regionprops_object)
+    largest_region_props = {
+        prop: getattr(regionprops_object, prop)
+        for prop in available_props
+    }
+    return largest_region_props
+    
+def get_biggest_blob(mask: np.ndarray, return_props: bool = False) -> np.ndarray:
     """
     Returns a binary mask containing only the largest blob.
 
@@ -16,7 +44,8 @@ def get_biggest_blob(mask: np.ndarray) -> np.ndarray:
     -----------
     mask : np.ndarray
         Binary mask array with values 0 and 1
-
+    return_largest_region_props : bool
+        If True, returns the properties of the largest blob
     Returns:
     --------
     np.ndarray
@@ -52,18 +81,23 @@ def get_biggest_blob(mask: np.ndarray) -> np.ndarray:
 
     # Extract region properties
     regions = regionprops(labeled_mask)
-
+    
     # Handle edge case: no regions found (shouldn't happen if mask.any() is True, but safe check)
     if len(regions) == 0:
         return np.zeros_like(mask)
 
     # Find the region with the largest area
     largest_region = max(regions, key=lambda r: r.area)
-
+    
     # Create output mask with only the largest blob
-    output_mask = labeled_mask == largest_region.label
+    output_mask = labeled_mask == largest_region.label    
 
-    return output_mask
+    if return_props:
+        # Create output mask with only the largest blob
+        props = _extract_info(largest_region)
+        return output_mask, props
+    else:
+        return output_mask
 
 def bbox_from_mask(mask: np.ndarray) -> list[int]:
     """

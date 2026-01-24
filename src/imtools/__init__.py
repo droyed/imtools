@@ -5,7 +5,7 @@ This package provides utilities for loading images from various sources
 including file paths, PIL Images, NumPy arrays, and PyTorch tensors.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 from .read_write import load_image
 from .draw import draw_mask_overlays, text_on_canvas
