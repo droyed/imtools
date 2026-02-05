@@ -7,14 +7,21 @@ method/parameter dropdowns.
 
 Usage:
     from overlay_viewer import run_overlay_viewer
-    run_overlay_viewer(image, label_image)
+    blended_image, settings = run_overlay_viewer(image, label_image)
+
+Returns:
+    tuple: (PIL.Image.Image, dict) - The blended image and settings dictionary
+           containing 'alpha', 'method', and method-specific parameters.
 """
+
+import os
+import platform
 
 import numpy as np
 import cv2
 import dearpygui.dearpygui as dpg
 from PIL import Image
-from imtools.color_gen import generate_colors  # Global import added
+from imtools.color_gen import generate_colors
 
 # Constants
 MIN_WINDOW_WIDTH = 600
@@ -36,9 +43,6 @@ ACCENT_COLOR = (70, 70, 70)
 
 def get_system_font_path():
     """Try to find a suitable system font path."""
-    import platform
-    import os
-    
     system = platform.system()
     
     font_candidates = []
@@ -561,7 +565,7 @@ class OverlayViewer:
         self._compute_lut()
         self._refresh_display()
 
-    def run(self, initial_alpha: float = 0.3) -> dict:
+    def run(self, initial_alpha: float = 0.3) -> tuple[Image.Image, dict]:
         self.current_alpha = initial_alpha
         dpg.create_context()
 
@@ -713,9 +717,8 @@ def run_overlay_viewer(img: np.ndarray, label_image: np.ndarray,
                        initial_saturation: float = None,
                        initial_category: str = None,
                        initial_colormap: str = None,
-                       initial_alpha: float = 0.3) -> dict:
+                       initial_alpha: float = 0.3) -> tuple[Image.Image, dict]:
     # CHANGED: Passed label_image directly to constructor
     viewer = OverlayViewer(img, label_image, initial_method,
                            initial_saturation, initial_category, initial_colormap)
     return viewer.run(initial_alpha)
-
