@@ -1,0 +1,721 @@
+"""
+Dear PyGui Mask Overlay Viewer
+
+A minimal GUI application to visualize a mask overlay on an image
+with real-time alpha blending control via a slider and dynamic
+method/parameter dropdowns.
+
+Usage:
+    from overlay_viewer import run_overlay_viewer
+    run_overlay_viewer(image, label_image)
+"""
+
+import numpy as np
+import cv2
+import dearpygui.dearpygui as dpg
+from PIL import Image
+from imtools.color_gen import generate_colors  # Global import added
+
+# Constants
+MIN_WINDOW_WIDTH = 600
+MIN_WINDOW_HEIGHT = 400
+PADDING = 20
+CONTROLS_WIDTH = 280
+
+# Visual styling constants
+SHADOW_OFFSET = 4
+BACKGROUND_COLOR = (18, 18, 18)
+CONTROL_BG_COLOR = (28, 28, 28)
+CONTROL_BG_HOVER = (38, 38, 38)
+CONTROL_BG_ACTIVE = (45, 45, 45)
+PANEL_BG_COLOR = (24, 24, 24)
+TEXT_COLOR = (220, 220, 220)
+TEXT_DIM_COLOR = (140, 140, 140)
+ACCENT_COLOR = (70, 70, 70)
+
+
+def get_system_font_path():
+    """Try to find a suitable system font path."""
+    import platform
+    import os
+    
+    system = platform.system()
+    
+    font_candidates = []
+    
+    if system == "Linux":
+        font_candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        ]
+    elif system == "Darwin":  # macOS
+        font_candidates = [
+            "/System/Library/Fonts/SFNSText.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+            "/Library/Fonts/Arial.ttf",
+        ]
+    elif system == "Windows":
+        font_candidates = [
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/calibri.ttf",
+        ]
+    
+    for font_path in font_candidates:
+        if os.path.exists(font_path):
+            return font_path
+    
+    return None
+
+
+def create_dark_theme():
+    """Create a minimal global dark theme (zero padding for main window)."""
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvAll):
+            # Background colors
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, BACKGROUND_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, PANEL_BG_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (25, 25, 25))
+            
+            # Text colors
+            dpg.add_theme_color(dpg.mvThemeCol_Text, TEXT_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, TEXT_DIM_COLOR)
+            
+            # Control colors
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBg, CONTROL_BG_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, CONTROL_BG_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, CONTROL_BG_ACTIVE)
+            
+            # Slider
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, ACCENT_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (90, 90, 90))
+            
+            # Button
+            dpg.add_theme_color(dpg.mvThemeCol_Button, CONTROL_BG_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, CONTROL_BG_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, CONTROL_BG_ACTIVE)
+            
+            # Header
+            dpg.add_theme_color(dpg.mvThemeCol_Header, CONTROL_BG_COLOR)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, CONTROL_BG_HOVER)
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, CONTROL_BG_ACTIVE)
+            
+            # Borders
+            dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowBorderSize, 0)
+            dpg.add_theme_style(dpg.mvStyleVar_PopupBorderSize, 0)
+            
+            # Rounding
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_PopupRounding, 4)
+            
+            # Spacing
+            dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 8, 8)
+            dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 6)
+            
+            # Global Window Padding (Zero for flush image)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 0, 0)
+            
+    return theme
+
+
+def create_panel_theme():
+    """Create a specific theme for the sidebar panel (restores padding)."""
+    with dpg.theme() as theme:
+        with dpg.theme_component(dpg.mvAll):
+            dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 16, 16)
+    return theme
+
+
+def calculate_fit_dimensions(image_w, image_h, container_w, container_h, padding=PADDING):
+    """Calculate dimensions to fit image in container while preserving aspect ratio."""
+    available_w = container_w - 2 * padding
+    available_h = container_h - 2 * padding
+
+    if available_w <= 0 or available_h <= 0 or image_h == 0:
+        return 0, 0, 0, 0
+
+    image_aspect = image_w / image_h
+    container_aspect = available_w / available_h
+
+    if image_aspect > container_aspect:
+        display_w = available_w
+        display_h = available_w / image_aspect
+    else:
+        display_h = available_h
+        display_w = available_h * image_aspect
+
+    x_offset = (container_w - display_w) / 2
+    y_offset = (container_h - display_h) / 2
+
+    return display_w, display_h, x_offset, y_offset
+
+
+# Matplotlib Colormaps
+MATPLOTLIB_COLORMAPS = {
+    'Perceptually Uniform Sequential': [
+        'viridis', 'plasma', 'inferno', 'magma', 'cividis'
+    ],
+    'Sequential': [
+        'Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
+        'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
+        'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn'
+    ],
+    'Sequential (2)': [
+        'binary', 'gist_yarg', 'gist_gray', 'gray', 'bone', 'pink',
+        'spring', 'summer', 'autumn', 'winter', 'cool', 'Wistia',
+        'hot', 'afmhot', 'gist_heat', 'copper'
+    ],
+    'Diverging': [
+        'PiYG', 'PRGn', 'BrBG', 'PuOr', 'RdGy', 'RdBu',
+        'RdYlBu', 'RdYlGn', 'Spectral', 'coolwarm', 'bwr', 'seismic',
+        'berlin', 'managua', 'vanimo'
+    ],
+    'Cyclic': [
+        'twilight', 'twilight_shifted', 'hsv'
+    ],
+    'Qualitative': [
+        'Pastel1', 'Pastel2', 'Paired', 'Accent', 'Dark2',
+        'Set1', 'Set2', 'Set3', 'tab10', 'tab20', 'tab20b', 'tab20c'
+    ],
+    'Miscellaneous': [
+        'flag', 'prism', 'ocean', 'gist_earth', 'terrain', 'gist_stern',
+        'gnuplot', 'gnuplot2', 'CMRmap', 'cubehelix', 'brg',
+        'gist_rainbow', 'rainbow', 'jet', 'turbo', 'nipy_spectral', 'gist_ncar'
+    ]
+}
+
+COLORMAP_CATEGORIES = list(MATPLOTLIB_COLORMAPS.keys())
+
+# Method Parameters
+METHOD_PARAMS = {
+    'preset': None,
+    'hsv': {
+        'label': 'saturation',
+        'options': ['Pastel (0.3)', 'Muted (0.5)', 'Medium (0.7)', 'Vibrant (0.9)', 'Full (1.0)'],
+        'values': [0.3, 0.5, 0.7, 0.9, 1.0],
+        'default_index': 3,
+        'has_third_dropdown': False,
+    },
+    'golden_ratio': {
+        'label': 'saturation',
+        'options': ['Pastel (0.3)', 'Muted (0.5)', 'Medium (0.7)', 'Vibrant (0.9)', 'Full (1.0)'],
+        'values': [0.3, 0.5, 0.7, 0.9, 1.0],
+        'default_index': 3,
+        'has_third_dropdown': False,
+    },
+    'kmeans': {
+        'label': 'saturation',
+        'options': ['Pastel (0.3)', 'Muted (0.5)', 'Medium (0.7)', 'Vibrant (0.9)', 'Full (1.0)'],
+        'values': [0.3, 0.5, 0.7, 0.9, 1.0],
+        'default_index': 3,
+        'has_third_dropdown': False,
+    },
+    'colormap': {
+        'label': 'category',
+        'options': COLORMAP_CATEGORIES,
+        'values': COLORMAP_CATEGORIES,
+        'default_index': 5,
+        'has_third_dropdown': True,
+        'third_label': 'colormap',
+        'third_default_index': 9,
+    },
+    'colormap_extended': {
+        'label': 'category',
+        'options': COLORMAP_CATEGORIES,
+        'values': COLORMAP_CATEGORIES,
+        'default_index': 5,
+        'has_third_dropdown': True,
+        'third_label': 'colormap',
+        'third_default_index': 9,
+    },
+}
+
+METHOD_LIST = list(METHOD_PARAMS.keys())
+
+
+class OverlayViewer:
+    """Handles the overlay visualization and Dear PyGui interaction."""
+
+    def __init__(self, img: np.ndarray, label_image: np.ndarray,
+                 initial_method: str = 'colormap', initial_saturation: float = None,
+                 initial_category: str = None, initial_colormap: str = None):
+        
+        self.img = img
+        self.h, self.w = img.shape[:2]
+        
+        # CHANGED: Accept label_image directly instead of mask
+        self.label_image = label_image.astype(np.int32)
+        
+        # Calculate num_labels from the max value + 1 (assuming 0 is background)
+        self.num_labels = int(np.max(self.label_image) + 1)
+        self.has_labels = self.num_labels > 1
+
+        # Current state
+        self.current_method = initial_method
+        self.current_param_label = None
+        self.current_param_value = None
+        self.current_param_index = 0
+        self.current_third_label = None
+        self.current_third_value = None
+        self.current_third_index = 0
+        self.current_alpha = 0.3
+        self.lut = None
+
+        self._init_param_from_method(initial_method, initial_saturation, initial_category, initial_colormap)
+        self._compute_lut()
+
+        # Display settings
+        self.max_display_size = 1000
+        self.initial_display_w, self.initial_display_h = self._calculate_initial_display_size()
+
+        # Dear PyGui tags
+        self.texture_tag = "overlay_texture"
+        self.drawlist_tag = "image_drawlist"
+        self.sidebar_tag = "controls_sidebar"
+        
+        self.method_combo_tag = "method_combo"
+        self.param_combo_tag = "param_combo"
+        self.param_text_tag = "param_text"
+        self.param_group_tag = "param_group"
+        self.third_combo_tag = "third_combo"
+        self.third_text_tag = "third_text"
+        self.third_group_tag = "third_group"
+        self.alpha_slider_tag = "alpha_slider"
+
+    def _init_param_from_method(self, method: str, initial_saturation=None,
+                                 initial_category=None, initial_colormap=None):
+        config = METHOD_PARAMS.get(method)
+        if config is None:
+            self.current_param_label = None
+            self.current_param_value = None
+            self.current_param_index = 0
+            self.current_third_label = None
+            self.current_third_value = None
+            self.current_third_index = 0
+        elif config.get('has_third_dropdown', False):
+            self.current_param_label = config['label']
+            if initial_category is not None and initial_category in config['values']:
+                self.current_param_index = config['values'].index(initial_category)
+            else:
+                self.current_param_index = config['default_index']
+            self.current_param_value = config['values'][self.current_param_index]
+            
+            self.current_third_label = config['third_label']
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            if initial_colormap is not None and initial_colormap in colormaps_in_category:
+                self.current_third_index = colormaps_in_category.index(initial_colormap)
+            else:
+                self.current_third_index = min(config['third_default_index'], len(colormaps_in_category) - 1)
+            self.current_third_value = colormaps_in_category[self.current_third_index]
+        else:
+            self.current_param_label = config['label']
+            if initial_saturation is not None and initial_saturation in config['values']:
+                self.current_param_index = config['values'].index(initial_saturation)
+            else:
+                self.current_param_index = config['default_index']
+            self.current_param_value = config['values'][self.current_param_index]
+            self.current_third_label = None
+            self.current_third_value = None
+            self.current_third_index = 0
+
+    def _calculate_initial_display_size(self) -> tuple[int, int]:
+        scale = min(self.max_display_size / self.w, self.max_display_size / self.h, 1.0)
+        return int(self.w * scale), int(self.h * scale)
+
+    def _redraw_image(self, window_w: int, window_h: int):
+        """Clear drawlist and redraw image at current size with shadow."""
+        image_area_w = window_w - CONTROLS_WIDTH
+        image_area_h = window_h
+        
+        if image_area_w <= 0: image_area_w = 10
+        if image_area_h <= 0: image_area_h = 10
+
+        display_w, display_h, x_off, y_off = calculate_fit_dimensions(
+            self.w, self.h, image_area_w, image_area_h
+        )
+
+        dpg.delete_item(self.drawlist_tag, children_only=True)
+
+        if display_w > 0 and display_h > 0:
+            shadow_layers = [
+                (SHADOW_OFFSET, (0, 0, 0, 25)),
+                (SHADOW_OFFSET - 1, (0, 0, 0, 20)),
+                (SHADOW_OFFSET - 2, (0, 0, 0, 15)),
+            ]
+            
+            for offset, color in shadow_layers:
+                dpg.draw_rectangle(
+                    pmin=(x_off + offset, y_off + offset),
+                    pmax=(x_off + display_w + offset, y_off + display_h + offset),
+                    color=color,
+                    fill=color,
+                    parent=self.drawlist_tag
+                )
+            
+            dpg.draw_image(
+                self.texture_tag,
+                pmin=(x_off, y_off),
+                pmax=(x_off + display_w, y_off + display_h),
+                parent=self.drawlist_tag
+            )
+
+    def on_window_resize(self, sender, app_data):
+        """Handle window resize - recalculate and redraw."""
+        window_width = dpg.get_item_width("primary_window")
+        window_height = dpg.get_item_height("primary_window")
+
+        window_width = max(window_width, MIN_WINDOW_WIDTH)
+        window_height = max(window_height, MIN_WINDOW_HEIGHT)
+        
+        image_area_w = max(1, window_width - CONTROLS_WIDTH)
+        image_area_h = max(1, window_height)
+
+        dpg.configure_item(self.drawlist_tag, width=image_area_w, height=image_area_h)
+        dpg.configure_item(self.sidebar_tag, height=image_area_h)
+        self._redraw_image(window_width, window_height)
+
+    def _compute_lut(self):
+        if not self.has_labels:
+            self.lut = None
+            return
+
+        config = METHOD_PARAMS.get(self.current_method)
+        kwargs = {}
+        if config is not None:
+            if config.get('has_third_dropdown', False):
+                kwargs['colormap'] = self.current_third_value
+            elif self.current_param_label is not None and self.current_param_value is not None:
+                kwargs[self.current_param_label] = self.current_param_value
+
+        # Use global generate_colors function
+        colors = generate_colors(self.num_labels - 1, method=self.current_method, **kwargs)
+        self.lut = np.vstack([[0, 0, 0], colors]).astype(np.uint8)
+
+    def blend(self, alpha: float) -> np.ndarray:
+        if self.has_labels and self.lut is not None:
+            overlay = self.lut[self.label_image]
+            blended = cv2.addWeighted(self.img, 1 - alpha, overlay, alpha, 0)
+        else:
+            blended = self.img
+
+        rgba = np.zeros((self.h, self.w, 4), dtype=np.float32)
+        rgba[:, :, :3] = blended.astype(np.float32) / 255.0
+        rgba[:, :, 3] = 1.0
+
+        return rgba.flatten()
+
+    def _cycle_combo(self, combo_tag: str, items: list, values: list, direction: int, callback):
+        current_display = dpg.get_value(combo_tag)
+        try:
+            current_index = items.index(current_display)
+        except ValueError:
+            current_index = 0
+        
+        new_index = (current_index + direction) % len(items)
+        new_display = items[new_index]
+        dpg.set_value(combo_tag, new_display)
+        callback(combo_tag, new_display)
+
+    def on_key_press(self, sender, app_data):
+        key = app_data
+        
+        if dpg.is_item_hovered(self.alpha_slider_tag):
+            step = 0.05
+            if key == dpg.mvKey_Right:
+                new_value = min(1.0, self.current_alpha + step)
+                dpg.set_value(self.alpha_slider_tag, new_value)
+                self.on_alpha_change(self.alpha_slider_tag, new_value)
+            elif key == dpg.mvKey_Left:
+                new_value = max(0.0, self.current_alpha - step)
+                dpg.set_value(self.alpha_slider_tag, new_value)
+                self.on_alpha_change(self.alpha_slider_tag, new_value)
+            return
+        
+        if dpg.is_item_hovered(self.method_combo_tag):
+            direction = 1 if key == dpg.mvKey_Down else (-1 if key == dpg.mvKey_Up else 0)
+            if direction:
+                self._cycle_combo(self.method_combo_tag, METHOD_LIST, METHOD_LIST, direction, self.on_method_change)
+            return
+
+        config = METHOD_PARAMS.get(self.current_method)
+        if config is not None and dpg.is_item_hovered(self.param_combo_tag):
+            direction = 1 if key == dpg.mvKey_Down else (-1 if key == dpg.mvKey_Up else 0)
+            if direction:
+                self._cycle_combo(self.param_combo_tag, config['options'], config['values'], direction, self.on_param_change)
+            return
+        
+        if config is not None and config.get('has_third_dropdown', False) and dpg.is_item_hovered(self.third_combo_tag):
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            direction = 1 if key == dpg.mvKey_Down else (-1 if key == dpg.mvKey_Up else 0)
+            if direction:
+                self._cycle_combo(self.third_combo_tag, colormaps_in_category, colormaps_in_category, direction, self.on_third_change)
+
+    def _refresh_display(self):
+        texture_data = self.blend(self.current_alpha)
+        dpg.set_value(self.texture_tag, texture_data)
+        try:
+            window_width = dpg.get_item_width("primary_window")
+            window_height = dpg.get_item_height("primary_window")
+            if window_width > 0 and window_height > 0:
+                self._redraw_image(window_width, window_height)
+        except Exception:
+            pass
+
+    def _get_blended_pil(self) -> Image.Image:
+        if self.has_labels and self.lut is not None:
+            overlay = self.lut[self.label_image]
+            blended = cv2.addWeighted(self.img, 1 - self.current_alpha, overlay, self.current_alpha, 0)
+        else:
+            blended = self.img
+        return Image.fromarray(blended)
+
+    def get_result(self) -> dict:
+        settings = {'alpha': self.current_alpha, 'method': self.current_method}
+        config = METHOD_PARAMS.get(self.current_method)
+        if config is not None:
+            if config.get('has_third_dropdown', False):
+                settings['category'] = self.current_param_value
+                settings['colormap'] = self.current_third_value
+            else:
+                settings['saturation'] = self.current_param_value
+        return self._get_blended_pil(), settings
+
+    def on_alpha_change(self, sender, app_data):
+        self.current_alpha = app_data
+        self._refresh_display()
+
+    def on_method_change(self, sender, app_data):
+        self.current_method = app_data
+        config = METHOD_PARAMS.get(self.current_method)
+
+        if config is None:
+            self.current_param_label = None
+            self.current_param_value = None
+            dpg.configure_item(self.param_group_tag, show=False)
+            dpg.configure_item(self.third_group_tag, show=False)
+        elif config.get('has_third_dropdown', False):
+            self.current_param_label = config['label']
+            default_index = config['default_index']
+            self.current_param_value = config['values'][default_index]
+
+            dpg.set_value(self.param_text_tag, config['label'])
+            dpg.configure_item(self.param_combo_tag, items=config['options'], default_value=config['options'][default_index])
+            dpg.configure_item(self.param_group_tag, show=True)
+            
+            self.current_third_label = config['third_label']
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            third_idx = min(config['third_default_index'], len(colormaps_in_category) - 1)
+            self.current_third_value = colormaps_in_category[third_idx]
+            self.current_third_index = third_idx
+            
+            dpg.set_value(self.third_text_tag, config['third_label'])
+            dpg.configure_item(self.third_combo_tag, items=colormaps_in_category, default_value=colormaps_in_category[third_idx])
+            dpg.configure_item(self.third_group_tag, show=True)
+        else:
+            self.current_param_label = config['label']
+            default_index = config['default_index']
+            self.current_param_value = config['values'][default_index]
+            
+            dpg.set_value(self.param_text_tag, config['label'])
+            dpg.configure_item(self.param_combo_tag, items=config['options'], default_value=config['options'][default_index])
+            dpg.configure_item(self.param_group_tag, show=True)
+            dpg.configure_item(self.third_group_tag, show=False)
+
+        self._compute_lut()
+        self._refresh_display()
+
+    def on_param_change(self, sender, app_data):
+        config = METHOD_PARAMS.get(self.current_method)
+        if config is None: return
+
+        try:
+            index = config['options'].index(app_data)
+            self.current_param_value = config['values'][index]
+            self.current_param_index = index
+        except ValueError: return
+
+        if config.get('has_third_dropdown', False):
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            self.current_third_index = 0
+            self.current_third_value = colormaps_in_category[0]
+            dpg.configure_item(self.third_combo_tag, items=colormaps_in_category, default_value=colormaps_in_category[0])
+
+        self._compute_lut()
+        self._refresh_display()
+
+    def on_third_change(self, sender, app_data):
+        config = METHOD_PARAMS.get(self.current_method)
+        if config is None or not config.get('has_third_dropdown', False): return
+        
+        try:
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            index = colormaps_in_category.index(app_data)
+            self.current_third_value = app_data
+            self.current_third_index = index
+        except ValueError: return
+
+        self._compute_lut()
+        self._refresh_display()
+
+    def run(self, initial_alpha: float = 0.3) -> dict:
+        self.current_alpha = initial_alpha
+        dpg.create_context()
+
+        # Bind Global Theme
+        theme = create_dark_theme()
+        dpg.bind_theme(theme)
+        
+        font_path = get_system_font_path()
+        if font_path:
+            with dpg.font_registry():
+                default_font = dpg.add_font(font_path, 15)
+            dpg.bind_font(default_font)
+
+        initial_texture = self.blend(initial_alpha)
+        with dpg.texture_registry():
+            dpg.add_dynamic_texture(width=self.w, height=self.h, default_value=initial_texture, tag=self.texture_tag)
+
+        initial_config = METHOD_PARAMS.get(self.current_method)
+        show_param = initial_config is not None
+
+        # Sizing calculations
+        image_area_w = self.initial_display_w + 40
+        image_area_h = self.initial_display_h + 40
+        initial_window_w = image_area_w + CONTROLS_WIDTH
+        initial_window_h = image_area_h
+        
+        control_content_width = CONTROLS_WIDTH - 40 
+
+        with dpg.window(label="Overlay Viewer", tag="primary_window"):
+            
+            with dpg.group(horizontal=True):
+                
+                # LEFT: Image Area (Drawlist)
+                dpg.add_drawlist(
+                    tag=self.drawlist_tag,
+                    width=image_area_w,
+                    height=image_area_h
+                )
+                
+                # RIGHT: Control Panel (Child Window)
+                # We create it first, then bind the specific theme to it below
+                with dpg.child_window(tag=self.sidebar_tag, width=CONTROLS_WIDTH, border=False):
+                    
+                    dpg.add_text("CONTROLS", color=TEXT_DIM_COLOR)
+                    dpg.add_spacer(height=10)
+
+                    # Alpha Control
+                    dpg.add_text("alpha", color=TEXT_DIM_COLOR)
+                    dpg.add_slider_float(
+                        label="",  # removed label
+                        default_value=initial_alpha,
+                        min_value=0.0, max_value=1.0,
+                        callback=self.on_alpha_change,
+                        width=control_content_width,
+                        tag=self.alpha_slider_tag
+                    )
+                    
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
+
+                    # Method Control
+                    dpg.add_text("method", color=TEXT_DIM_COLOR)
+                    dpg.add_combo(
+                        items=METHOD_LIST,
+                        default_value=self.current_method,
+                        label="",  # removed label
+                        callback=self.on_method_change,
+                        tag=self.method_combo_tag,
+                        width=control_content_width
+                    )
+
+                    dpg.add_spacer(height=5)
+
+                    if show_param:
+                        param_label = initial_config['label']
+                        param_options = initial_config['options']
+                        param_default = param_options[self.current_param_index]
+                    else:
+                        param_label = ""
+                        param_options = []
+                        param_default = ""
+
+                    with dpg.group(horizontal=False, tag=self.param_group_tag, show=show_param):
+                        dpg.add_text(param_label, tag=self.param_text_tag, color=TEXT_DIM_COLOR)
+                        dpg.add_combo(
+                            items=param_options,
+                            default_value=param_default,
+                            callback=self.on_param_change,
+                            tag=self.param_combo_tag,
+                            width=control_content_width,
+                        )
+
+                    dpg.add_spacer(height=5)
+
+                    show_third = initial_config is not None and initial_config.get('has_third_dropdown', False)
+                    if show_third:
+                        third_label = initial_config['third_label']
+                        colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+                        third_default = colormaps_in_category[self.current_third_index]
+                    else:
+                        third_label = ""
+                        colormaps_in_category = []
+                        third_default = ""
+
+                    with dpg.group(horizontal=False, tag=self.third_group_tag, show=show_third):
+                        dpg.add_text(third_label, tag=self.third_text_tag, color=TEXT_DIM_COLOR)
+                        dpg.add_combo(
+                            items=colormaps_in_category,
+                            default_value=third_default,
+                            callback=self.on_third_change,
+                            tag=self.third_combo_tag,
+                            width=control_content_width,
+                        )
+
+                    dpg.add_spacer(height=20)
+                    dpg.add_separator()
+                    dpg.add_spacer(height=10)
+                    
+        # Bind Specific Theme to Sidebar (to restore padding only inside controls)
+        panel_theme = create_panel_theme()
+        dpg.bind_item_theme(self.sidebar_tag, panel_theme)
+
+        # Keyboard Handlers
+        with dpg.handler_registry():
+            dpg.add_key_press_handler(dpg.mvKey_Up, callback=self.on_key_press)
+            dpg.add_key_press_handler(dpg.mvKey_Down, callback=self.on_key_press)
+            dpg.add_key_press_handler(dpg.mvKey_Left, callback=self.on_key_press)
+            dpg.add_key_press_handler(dpg.mvKey_Right, callback=self.on_key_press)
+
+        with dpg.item_handler_registry(tag="window_handler"):
+            dpg.add_item_resize_handler(callback=self.on_window_resize)
+        dpg.bind_item_handler_registry("primary_window", "window_handler")
+
+        dpg.create_viewport(title="Mask Overlay Viewer", width=initial_window_w, height=initial_window_h,
+                          min_width=MIN_WINDOW_WIDTH, min_height=MIN_WINDOW_HEIGHT)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.set_primary_window("primary_window", True)
+
+        self._redraw_image(initial_window_w, initial_window_h)
+        dpg.start_dearpygui()
+        result = self.get_result()
+        dpg.destroy_context()
+        return result
+
+
+def run_overlay_viewer(img: np.ndarray, label_image: np.ndarray,
+                       initial_method: str = 'colormap',
+                       initial_saturation: float = None,
+                       initial_category: str = None,
+                       initial_colormap: str = None,
+                       initial_alpha: float = 0.3) -> dict:
+    # CHANGED: Passed label_image directly to constructor
+    viewer = OverlayViewer(img, label_image, initial_method,
+                           initial_saturation, initial_category, initial_colormap)
+    return viewer.run(initial_alpha)
+
