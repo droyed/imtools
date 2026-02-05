@@ -16,6 +16,7 @@ Returns:
 
 import os
 import platform
+from typing import Any, Callable
 
 import numpy as np
 import cv2
@@ -39,6 +40,11 @@ PANEL_BG_COLOR = (24, 24, 24)
 TEXT_COLOR = (220, 220, 220)
 TEXT_DIM_COLOR = (140, 140, 140)
 ACCENT_COLOR = (70, 70, 70)
+FONT_SIZE = 15
+
+# DearPyGui tag constants
+PRIMARY_WINDOW_TAG = "primary_window"
+WINDOW_HANDLER_TAG = "window_handler"
 
 
 def get_system_font_path():
@@ -244,9 +250,46 @@ METHOD_LIST = list(METHOD_PARAMS.keys())
 class OverlayViewer:
     """Handles the overlay visualization and Dear PyGui interaction."""
 
+    @staticmethod
+    def _validate_inputs(img: np.ndarray, label_image: np.ndarray, initial_method: str) -> None:
+        """Validate input arguments and raise ValueError with descriptive messages."""
+        # Validate img
+        if not isinstance(img, np.ndarray):
+            raise ValueError(f"img must be a numpy array, got {type(img).__name__}")
+        if img.size == 0:
+            raise ValueError("img cannot be empty")
+        if img.ndim != 3:
+            raise ValueError(f"img must be 3-dimensional (H, W, C), got {img.ndim} dimensions")
+        if img.shape[2] != 3:
+            raise ValueError(f"img must have 3 channels (RGB), got {img.shape[2]} channels")
+        
+        # Validate label_image
+        if not isinstance(label_image, np.ndarray):
+            raise ValueError(f"label_image must be a numpy array, got {type(label_image).__name__}")
+        if label_image.size == 0:
+            raise ValueError("label_image cannot be empty")
+        if label_image.ndim != 2:
+            raise ValueError(f"label_image must be 2-dimensional (H, W), got {label_image.ndim} dimensions")
+        
+        # Validate matching dimensions
+        if img.shape[:2] != label_image.shape:
+            raise ValueError(
+                f"img and label_image must have matching spatial dimensions: "
+                f"img is {img.shape[:2]}, label_image is {label_image.shape}"
+            )
+        
+        # Validate initial_method
+        if initial_method not in METHOD_PARAMS:
+            raise ValueError(
+                f"initial_method must be one of {list(METHOD_PARAMS.keys())}, got '{initial_method}'"
+            )
+
     def __init__(self, img: np.ndarray, label_image: np.ndarray,
                  initial_method: str = 'colormap', initial_saturation: float = None,
                  initial_category: str = None, initial_colormap: str = None):
+        
+        # Input validation
+        self._validate_inputs(img, label_image, initial_method)
         
         self.img = img
         self.h, self.w = img.shape[:2]
@@ -330,7 +373,7 @@ class OverlayViewer:
         scale = min(self.max_display_size / self.w, self.max_display_size / self.h, 1.0)
         return int(self.w * scale), int(self.h * scale)
 
-    def _redraw_image(self, window_w: int, window_h: int):
+    def _redraw_image(self, window_w: int, window_h: int) -> None:
         """Clear drawlist and redraw image at current size with shadow."""
         image_area_w = window_w - CONTROLS_WIDTH
         image_area_h = window_h
@@ -367,10 +410,10 @@ class OverlayViewer:
                 parent=self.drawlist_tag
             )
 
-    def on_window_resize(self, sender, app_data):
+    def on_window_resize(self, sender: int, app_data: Any) -> None:
         """Handle window resize - recalculate and redraw."""
-        window_width = dpg.get_item_width("primary_window")
-        window_height = dpg.get_item_height("primary_window")
+        window_width = dpg.get_item_width(PRIMARY_WINDOW_TAG)
+        window_height = dpg.get_item_height(PRIMARY_WINDOW_TAG)
 
         window_width = max(window_width, MIN_WINDOW_WIDTH)
         window_height = max(window_height, MIN_WINDOW_HEIGHT)
@@ -382,7 +425,7 @@ class OverlayViewer:
         dpg.configure_item(self.sidebar_tag, height=image_area_h)
         self._redraw_image(window_width, window_height)
 
-    def _compute_lut(self):
+    def _compute_lut(self) -> None:
         if not self.has_labels:
             self.lut = None
             return
@@ -412,7 +455,7 @@ class OverlayViewer:
 
         return rgba.flatten()
 
-    def _cycle_combo(self, combo_tag: str, items: list, values: list, direction: int, callback):
+    def _cycle_combo(self, combo_tag: str, items: list[str], values: list[Any], direction: int, callback: Callable) -> None:
         current_display = dpg.get_value(combo_tag)
         try:
             current_index = items.index(current_display)
@@ -424,7 +467,7 @@ class OverlayViewer:
         dpg.set_value(combo_tag, new_display)
         callback(combo_tag, new_display)
 
-    def on_key_press(self, sender, app_data):
+    def on_key_press(self, sender: int, app_data: int) -> None:
         key = app_data
         
         if dpg.is_item_hovered(self.alpha_slider_tag):
@@ -458,15 +501,17 @@ class OverlayViewer:
             if direction:
                 self._cycle_combo(self.third_combo_tag, colormaps_in_category, colormaps_in_category, direction, self.on_third_change)
 
-    def _refresh_display(self):
+    def _refresh_display(self) -> None:
         texture_data = self.blend(self.current_alpha)
         dpg.set_value(self.texture_tag, texture_data)
         try:
-            window_width = dpg.get_item_width("primary_window")
-            window_height = dpg.get_item_height("primary_window")
+            window_width = dpg.get_item_width(PRIMARY_WINDOW_TAG)
+            window_height = dpg.get_item_height(PRIMARY_WINDOW_TAG)
             if window_width > 0 and window_height > 0:
                 self._redraw_image(window_width, window_height)
-        except Exception:
+        except (SystemError, RuntimeError):
+            # Window may not be fully initialized during early callbacks;
+            # silently skip redraw until window is ready
             pass
 
     def _get_blended_pil(self) -> Image.Image:
@@ -488,11 +533,11 @@ class OverlayViewer:
                 settings['saturation'] = self.current_param_value
         return self._get_blended_pil(), settings
 
-    def on_alpha_change(self, sender, app_data):
+    def on_alpha_change(self, sender: int, app_data: float) -> None:
         self.current_alpha = app_data
         self._refresh_display()
 
-    def on_method_change(self, sender, app_data):
+    def on_method_change(self, sender: int, app_data: str) -> None:
         self.current_method = app_data
         config = METHOD_PARAMS.get(self.current_method)
 
@@ -532,7 +577,7 @@ class OverlayViewer:
         self._compute_lut()
         self._refresh_display()
 
-    def on_param_change(self, sender, app_data):
+    def on_param_change(self, sender: int, app_data: str) -> None:
         config = METHOD_PARAMS.get(self.current_method)
         if config is None: return
 
@@ -551,7 +596,7 @@ class OverlayViewer:
         self._compute_lut()
         self._refresh_display()
 
-    def on_third_change(self, sender, app_data):
+    def on_third_change(self, sender: int, app_data: str) -> None:
         config = METHOD_PARAMS.get(self.current_method)
         if config is None or not config.get('has_third_dropdown', False): return
         
@@ -576,7 +621,7 @@ class OverlayViewer:
         font_path = get_system_font_path()
         if font_path:
             with dpg.font_registry():
-                default_font = dpg.add_font(font_path, 15)
+                default_font = dpg.add_font(font_path, FONT_SIZE)
             dpg.bind_font(default_font)
 
         initial_texture = self.blend(initial_alpha)
@@ -594,7 +639,7 @@ class OverlayViewer:
         
         control_content_width = CONTROLS_WIDTH - 40 
 
-        with dpg.window(label="Overlay Viewer", tag="primary_window"):
+        with dpg.window(label="Overlay Viewer", tag=PRIMARY_WINDOW_TAG):
             
             with dpg.group(horizontal=True):
                 
@@ -695,15 +740,15 @@ class OverlayViewer:
             dpg.add_key_press_handler(dpg.mvKey_Left, callback=self.on_key_press)
             dpg.add_key_press_handler(dpg.mvKey_Right, callback=self.on_key_press)
 
-        with dpg.item_handler_registry(tag="window_handler"):
+        with dpg.item_handler_registry(tag=WINDOW_HANDLER_TAG):
             dpg.add_item_resize_handler(callback=self.on_window_resize)
-        dpg.bind_item_handler_registry("primary_window", "window_handler")
+        dpg.bind_item_handler_registry(PRIMARY_WINDOW_TAG, WINDOW_HANDLER_TAG)
 
         dpg.create_viewport(title="Mask Overlay Viewer", width=initial_window_w, height=initial_window_h,
                           min_width=MIN_WINDOW_WIDTH, min_height=MIN_WINDOW_HEIGHT)
         dpg.setup_dearpygui()
         dpg.show_viewport()
-        dpg.set_primary_window("primary_window", True)
+        dpg.set_primary_window(PRIMARY_WINDOW_TAG, True)
 
         self._redraw_image(initial_window_w, initial_window_h)
         dpg.start_dearpygui()
