@@ -284,6 +284,43 @@ class OverlayViewer:
                 f"initial_method must be one of {list(METHOD_PARAMS.keys())}, got '{initial_method}'"
             )
 
+    @staticmethod
+    def _remap_sparse_labels(label_image: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Remap sparse label values to a contiguous range [0, N).
+        
+        This prevents memory issues when label IDs are sparse (e.g., COCO dataset
+        where an object might have ID 20000 but only 3 unique labels exist).
+        
+        Args:
+            label_image: 2D array of integer labels (may be sparse).
+            
+        Returns:
+            tuple: (unique_labels, contiguous_labels)
+                - unique_labels: Sorted array of unique label values from input
+                - contiguous_labels: Label image remapped to range [0, len(unique_labels))
+        """
+        unique_labels = np.unique(label_image)
+        num_unique = len(unique_labels)
+        max_label = unique_labels[-1]  # np.unique returns sorted array
+        
+        # Determine if remapping is needed (sparse if max_label significantly exceeds count)
+        is_sparse = (max_label + 1) > (2 * num_unique)
+        
+        if not is_sparse:
+            # Labels are already dense enough; use as-is
+            # But still need contiguous mapping for LUT indexing
+            if unique_labels[0] == 0 and np.array_equal(unique_labels, np.arange(num_unique)):
+                # Already contiguous starting from 0
+                return unique_labels, label_image
+        
+        # Remap to contiguous range using searchsorted (works for any sparsity level)
+        # searchsorted finds insertion indices, which equals the contiguous index
+        # since unique_labels is sorted
+        contiguous_labels = np.searchsorted(unique_labels, label_image).astype(np.int32)
+        
+        return unique_labels, contiguous_labels
+
     def __init__(self, img: np.ndarray, label_image: np.ndarray,
                  initial_method: str = 'colormap', initial_saturation: float = None,
                  initial_category: str = None, initial_colormap: str = None):
@@ -294,11 +331,13 @@ class OverlayViewer:
         self.img = img
         self.h, self.w = img.shape[:2]
         
-        # CHANGED: Accept label_image directly instead of mask
+        # Store original label image
         self.label_image = label_image.astype(np.int32)
         
-        # Calculate num_labels from the max value + 1 (assuming 0 is background)
-        self.num_labels = int(np.max(self.label_image) + 1)
+        # Handle sparse labels by remapping to contiguous range [0, N)
+        # This prevents memory issues when max_label >> num_unique_labels
+        self._unique_labels, self._contiguous_labels = self._remap_sparse_labels(self.label_image)
+        self.num_labels = len(self._unique_labels)
         self.has_labels = self.num_labels > 1
 
         # Current state
@@ -444,7 +483,7 @@ class OverlayViewer:
 
     def blend(self, alpha: float) -> np.ndarray:
         if self.has_labels and self.lut is not None:
-            overlay = self.lut[self.label_image]
+            overlay = self.lut[self._contiguous_labels]
             blended = cv2.addWeighted(self.img, 1 - alpha, overlay, alpha, 0)
         else:
             blended = self.img
@@ -516,7 +555,7 @@ class OverlayViewer:
 
     def _get_blended_pil(self) -> Image.Image:
         if self.has_labels and self.lut is not None:
-            overlay = self.lut[self.label_image]
+            overlay = self.lut[self._contiguous_labels]
             blended = cv2.addWeighted(self.img, 1 - self.current_alpha, overlay, self.current_alpha, 0)
         else:
             blended = self.img
