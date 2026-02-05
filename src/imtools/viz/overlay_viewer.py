@@ -685,151 +685,220 @@ class OverlayViewer:
         self._compute_lut()
         self._refresh_display()
 
-    def run(self, initial_alpha: float = 0.3) -> tuple[Image.Image, dict]:
-        self.current_alpha = initial_alpha
-        dpg.create_context()
+    # =========================================================================
+    # UI Building Helper Methods
+    # =========================================================================
 
-        # Bind Global Theme
+    def _apply_theme(self) -> None:
+        """Create and apply the global dark theme."""
         theme = create_dark_theme()
         dpg.bind_theme(theme)
-        
+
+    def _setup_fonts(self) -> None:
+        """Load system font if available."""
         font_path = get_system_font_path()
         if font_path:
             with dpg.font_registry():
                 default_font = dpg.add_font(font_path, FONT_SIZE)
             dpg.bind_font(default_font)
 
+    def _create_texture(self, initial_alpha: float) -> None:
+        """Create the dynamic texture for the overlay display."""
         initial_texture = self.blend(initial_alpha)
         with dpg.texture_registry():
-            dpg.add_dynamic_texture(width=self.w, height=self.h, default_value=initial_texture, tag=self.texture_tag)
+            dpg.add_dynamic_texture(
+                width=self.w,
+                height=self.h,
+                default_value=initial_texture,
+                tag=self.texture_tag
+            )
 
+    def _build_alpha_slider(self, initial_alpha: float, width: int) -> None:
+        """Build the alpha control slider."""
+        dpg.add_text("alpha", color=TEXT_DIM_COLOR)
+        dpg.add_slider_float(
+            label="",
+            default_value=initial_alpha,
+            min_value=0.0, max_value=1.0,
+            callback=self.on_alpha_change,
+            width=width,
+            tag=self.alpha_slider_tag
+        )
+
+    def _build_method_combo(self, width: int) -> None:
+        """Build the method selection combo box."""
+        dpg.add_text("method", color=TEXT_DIM_COLOR)
+        dpg.add_combo(
+            items=METHOD_LIST,
+            default_value=self.current_method,
+            label="",
+            callback=self.on_method_change,
+            tag=self.method_combo_tag,
+            width=width
+        )
+        dpg.add_spacer(height=5)
+
+    def _build_param_combo(self, initial_config: dict | None, show_param: bool,
+                           width: int) -> None:
+        """Build the parameter combo box (saturation/category)."""
+        if show_param:
+            param_label = initial_config['label']
+            param_options = initial_config['options']
+            param_default = param_options[self.current_param_index]
+        else:
+            param_label = ""
+            param_options = []
+            param_default = ""
+
+        with dpg.group(horizontal=False, tag=self.param_group_tag, show=show_param):
+            dpg.add_text(param_label, tag=self.param_text_tag, color=TEXT_DIM_COLOR)
+            dpg.add_combo(
+                items=param_options,
+                default_value=param_default,
+                callback=self.on_param_change,
+                tag=self.param_combo_tag,
+                width=width,
+            )
+        dpg.add_spacer(height=5)
+
+    def _build_third_combo(self, initial_config: dict | None, width: int) -> None:
+        """Build the third combo box (colormap selection)."""
+        show_third = (initial_config is not None and 
+                      initial_config.get('has_third_dropdown', False))
+        
+        if show_third:
+            third_label = initial_config['third_label']
+            colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
+            third_default = colormaps_in_category[self.current_third_index]
+        else:
+            third_label = ""
+            colormaps_in_category = []
+            third_default = ""
+
+        with dpg.group(horizontal=False, tag=self.third_group_tag, show=show_third):
+            dpg.add_text(third_label, tag=self.third_text_tag, color=TEXT_DIM_COLOR)
+            dpg.add_combo(
+                items=colormaps_in_category,
+                default_value=third_default,
+                callback=self.on_third_change,
+                tag=self.third_combo_tag,
+                width=width,
+            )
+
+    def _build_control_panel(self, initial_alpha: float, initial_config: dict | None,
+                             show_param: bool, content_width: int) -> None:
+        """Build the control panel with all widgets."""
+        with dpg.child_window(tag=self.sidebar_tag, width=CONTROLS_WIDTH, border=False):
+            dpg.add_text("CONTROLS", color=TEXT_DIM_COLOR)
+            dpg.add_spacer(height=10)
+
+            self._build_alpha_slider(initial_alpha, content_width)
+
+            dpg.add_separator()
+            dpg.add_spacer(height=10)
+
+            self._build_method_combo(content_width)
+            self._build_param_combo(initial_config, show_param, content_width)
+            self._build_third_combo(initial_config, content_width)
+
+            dpg.add_spacer(height=20)
+            dpg.add_separator()
+            dpg.add_spacer(height=10)
+
+    def _build_ui(self, initial_alpha: float) -> tuple[int, int]:
+        """
+        Build the main window and all UI components.
+        
+        Returns:
+            tuple: (window_width, window_height) for viewport configuration.
+        """
         initial_config = METHOD_PARAMS.get(self.current_method)
         show_param = initial_config is not None
 
         # Sizing calculations
         image_area_w = self.initial_display_w + 40
         image_area_h = self.initial_display_h + 40
-        initial_window_w = image_area_w + CONTROLS_WIDTH
-        initial_window_h = image_area_h
-        
-        control_content_width = CONTROLS_WIDTH - 40 
+        window_w = image_area_w + CONTROLS_WIDTH
+        window_h = image_area_h
+        control_content_width = CONTROLS_WIDTH - 40
 
         with dpg.window(label="Overlay Viewer", tag=PRIMARY_WINDOW_TAG):
-            
             with dpg.group(horizontal=True):
-                
                 # LEFT: Image Area (Drawlist)
                 dpg.add_drawlist(
                     tag=self.drawlist_tag,
                     width=image_area_w,
                     height=image_area_h
                 )
-                
-                # RIGHT: Control Panel (Child Window)
-                # We create it first, then bind the specific theme to it below
-                with dpg.child_window(tag=self.sidebar_tag, width=CONTROLS_WIDTH, border=False):
-                    
-                    dpg.add_text("CONTROLS", color=TEXT_DIM_COLOR)
-                    dpg.add_spacer(height=10)
+                # RIGHT: Control Panel
+                self._build_control_panel(initial_alpha, initial_config,
+                                          show_param, control_content_width)
 
-                    # Alpha Control
-                    dpg.add_text("alpha", color=TEXT_DIM_COLOR)
-                    dpg.add_slider_float(
-                        label="",  # removed label
-                        default_value=initial_alpha,
-                        min_value=0.0, max_value=1.0,
-                        callback=self.on_alpha_change,
-                        width=control_content_width,
-                        tag=self.alpha_slider_tag
-                    )
-                    
-                    dpg.add_separator()
-                    dpg.add_spacer(height=10)
-
-                    # Method Control
-                    dpg.add_text("method", color=TEXT_DIM_COLOR)
-                    dpg.add_combo(
-                        items=METHOD_LIST,
-                        default_value=self.current_method,
-                        label="",  # removed label
-                        callback=self.on_method_change,
-                        tag=self.method_combo_tag,
-                        width=control_content_width
-                    )
-
-                    dpg.add_spacer(height=5)
-
-                    if show_param:
-                        param_label = initial_config['label']
-                        param_options = initial_config['options']
-                        param_default = param_options[self.current_param_index]
-                    else:
-                        param_label = ""
-                        param_options = []
-                        param_default = ""
-
-                    with dpg.group(horizontal=False, tag=self.param_group_tag, show=show_param):
-                        dpg.add_text(param_label, tag=self.param_text_tag, color=TEXT_DIM_COLOR)
-                        dpg.add_combo(
-                            items=param_options,
-                            default_value=param_default,
-                            callback=self.on_param_change,
-                            tag=self.param_combo_tag,
-                            width=control_content_width,
-                        )
-
-                    dpg.add_spacer(height=5)
-
-                    show_third = initial_config is not None and initial_config.get('has_third_dropdown', False)
-                    if show_third:
-                        third_label = initial_config['third_label']
-                        colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
-                        third_default = colormaps_in_category[self.current_third_index]
-                    else:
-                        third_label = ""
-                        colormaps_in_category = []
-                        third_default = ""
-
-                    with dpg.group(horizontal=False, tag=self.third_group_tag, show=show_third):
-                        dpg.add_text(third_label, tag=self.third_text_tag, color=TEXT_DIM_COLOR)
-                        dpg.add_combo(
-                            items=colormaps_in_category,
-                            default_value=third_default,
-                            callback=self.on_third_change,
-                            tag=self.third_combo_tag,
-                            width=control_content_width,
-                        )
-
-                    dpg.add_spacer(height=20)
-                    dpg.add_separator()
-                    dpg.add_spacer(height=10)
-                    
-        # Bind Specific Theme to Sidebar (to restore padding only inside controls)
+        # Apply panel theme to sidebar
         panel_theme = create_panel_theme()
         dpg.bind_item_theme(self.sidebar_tag, panel_theme)
 
-        # Keyboard Handlers
+        return window_w, window_h
+
+    def _register_handlers(self) -> None:
+        """Register keyboard and window resize handlers."""
+        # Keyboard handlers
         with dpg.handler_registry():
             dpg.add_key_press_handler(dpg.mvKey_Up, callback=self.on_key_press)
             dpg.add_key_press_handler(dpg.mvKey_Down, callback=self.on_key_press)
             dpg.add_key_press_handler(dpg.mvKey_Left, callback=self.on_key_press)
             dpg.add_key_press_handler(dpg.mvKey_Right, callback=self.on_key_press)
 
+        # Window resize handler
         with dpg.item_handler_registry(tag=WINDOW_HANDLER_TAG):
             dpg.add_item_resize_handler(callback=self.on_window_resize)
         dpg.bind_item_handler_registry(PRIMARY_WINDOW_TAG, WINDOW_HANDLER_TAG)
 
-        dpg.create_viewport(title="Mask Overlay Viewer", width=initial_window_w, height=initial_window_h,
-                          min_width=MIN_WINDOW_WIDTH, min_height=MIN_WINDOW_HEIGHT)
+    def _configure_viewport(self, window_w: int, window_h: int) -> None:
+        """Configure and display the viewport."""
+        dpg.create_viewport(
+            title="Mask Overlay Viewer",
+            width=window_w,
+            height=window_h,
+            min_width=MIN_WINDOW_WIDTH,
+            min_height=MIN_WINDOW_HEIGHT
+        )
         dpg.setup_dearpygui()
         dpg.show_viewport()
         dpg.set_primary_window(PRIMARY_WINDOW_TAG, True)
 
-        self._redraw_image(initial_window_w, initial_window_h)
-        dpg.start_dearpygui()
-        result = self.get_result()
-        dpg.destroy_context()
-        return result
+        # Initial draw
+        self._redraw_image(window_w, window_h)
+
+    # =========================================================================
+    # Main Entry Point
+    # =========================================================================
+
+    def run(self, initial_alpha: float = 0.3) -> tuple[Image.Image, dict]:
+        """
+        Launch the overlay viewer GUI.
+        
+        Args:
+            initial_alpha: Starting alpha blend value (0.0-1.0).
+            
+        Returns:
+            tuple: (blended_PIL_image, settings_dict) with final user selections.
+        """
+        self.current_alpha = initial_alpha
+        dpg.create_context()
+
+        try:
+            self._apply_theme()
+            self._setup_fonts()
+            self._create_texture(initial_alpha)
+            window_w, window_h = self._build_ui(initial_alpha)
+            self._register_handlers()
+            self._configure_viewport(window_w, window_h)
+
+            dpg.start_dearpygui()
+            return self.get_result()
+        finally:
+            dpg.destroy_context()
 
 
 def run_overlay_viewer(img: np.ndarray, label_image: np.ndarray,
