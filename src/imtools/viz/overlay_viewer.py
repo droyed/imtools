@@ -340,6 +340,17 @@ class OverlayViewer:
         self.num_labels = len(self._unique_labels)
         self.has_labels = self.num_labels > 1
 
+        # Pre-allocate buffers for performance (avoid repeated allocation in blend loop)
+        # Pre-normalize image to float32 (0.0-1.0) once
+        self._img_float = self.img.astype(np.float32) / 255.0
+        # Pre-allocate RGB buffer for cv2.addWeighted (must be contiguous)
+        self._rgb_buffer = np.zeros((self.h, self.w, 3), dtype=np.float32)
+        # Pre-allocate flat display buffer for DPG texture (RGBA float32)
+        # Initialize alpha channel to 1.0 (fully opaque)
+        self._display_buffer = np.ones((self.h * self.w * 4,), dtype=np.float32)
+        # Create a view for convenient (H, W, 4) access without copying
+        self._buffer_view = self._display_buffer.reshape((self.h, self.w, 4))
+
         # Current state
         self.current_method = initial_method
         self.current_param_label = None
@@ -349,7 +360,7 @@ class OverlayViewer:
         self.current_third_value = None
         self.current_third_index = 0
         self.current_alpha = 0.3
-        self.lut = None
+        self._lut_float = None
 
         self._init_param_from_method(initial_method, initial_saturation, initial_category, initial_colormap)
         self._compute_lut()
@@ -466,7 +477,7 @@ class OverlayViewer:
 
     def _compute_lut(self) -> None:
         if not self.has_labels:
-            self.lut = None
+            self._lut_float = None
             return
 
         config = METHOD_PARAMS.get(self.current_method)
@@ -479,20 +490,34 @@ class OverlayViewer:
 
         # Use global generate_colors function
         colors = generate_colors(self.num_labels - 1, method=self.current_method, **kwargs)
-        self.lut = np.vstack([[0, 0, 0], colors]).astype(np.uint8)
+        # Store as float32 (0.0-1.0) for efficient blending without repeated conversion
+        self._lut_float = np.vstack([[0, 0, 0], colors]).astype(np.float32) / 255.0
 
     def blend(self, alpha: float) -> np.ndarray:
-        if self.has_labels and self.lut is not None:
-            overlay = self.lut[self._contiguous_labels]
-            blended = cv2.addWeighted(self.img, 1 - alpha, overlay, alpha, 0)
+        """
+        Blend the image with the label overlay using pre-allocated buffers.
+        
+        Returns the internal display buffer directly (no copy) for efficiency.
+        """
+        if self.has_labels and self._lut_float is not None:
+            overlay = self._lut_float[self._contiguous_labels]
+            # Blend into contiguous RGB buffer (cv2.addWeighted requires contiguous array)
+            cv2.addWeighted(
+                self._img_float, 1 - alpha,
+                overlay, alpha,
+                0.0,
+                dst=self._rgb_buffer
+            )
         else:
-            blended = self.img
+            # No labels - copy the pre-normalized image to RGB buffer
+            np.copyto(self._rgb_buffer, self._img_float)
 
-        rgba = np.zeros((self.h, self.w, 4), dtype=np.float32)
-        rgba[:, :, :3] = blended.astype(np.float32) / 255.0
-        rgba[:, :, 3] = 1.0
-
-        return rgba.flatten()
+        # Copy RGB buffer to RGBA display buffer view
+        self._buffer_view[:, :, :3] = self._rgb_buffer
+        # Alpha channel already set to 1.0 at init; no action needed
+        
+        # Return the flat buffer directly (no copy)
+        return self._display_buffer
 
     def _cycle_combo(self, combo_tag: str, items: list[str], values: list[Any], direction: int, callback: Callable) -> None:
         current_display = dpg.get_value(combo_tag)
@@ -554,9 +579,20 @@ class OverlayViewer:
             pass
 
     def _get_blended_pil(self) -> Image.Image:
-        if self.has_labels and self.lut is not None:
-            overlay = self.lut[self._contiguous_labels]
-            blended = cv2.addWeighted(self.img, 1 - self.current_alpha, overlay, self.current_alpha, 0)
+        """
+        Get the blended image as a PIL Image for export.
+        
+        Called once at close time, so conversion overhead is acceptable.
+        """
+        if self.has_labels and self._lut_float is not None:
+            overlay = self._lut_float[self._contiguous_labels]
+            blended_float = cv2.addWeighted(
+                self._img_float, 1 - self.current_alpha,
+                overlay, self.current_alpha,
+                0.0
+            )
+            # Convert back to uint8 for PIL
+            blended = np.clip(blended_float * 255.0, 0, 255).astype(np.uint8)
         else:
             blended = self.img
         return Image.fromarray(blended)
