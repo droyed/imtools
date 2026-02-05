@@ -1,8 +1,26 @@
 import numpy as np
+import cv2
 from skimage.measure import label, regionprops
 from scipy.ndimage import binary_closing
 from skimage.segmentation import flood_fill
 
+
+def generate_label_image(mask, connectivity=8):
+    """
+    Generates a label image from a binary mask using connected components.
+    
+    Args:
+        mask (np.ndarray): Binary mask to segment.
+        connectivity (int): Pixel connectivity (4 or 8).
+    
+    Returns:
+        np.ndarray: Label image where each connected component has a unique integer label.
+    """
+    # Ensure mask is uint8 for OpenCV
+    mask_uint8 = mask.astype(np.uint8)
+    _, label_image = cv2.connectedComponents(mask_uint8, connectivity=connectivity)
+    
+    return label_image
 
 def _extract_properties(regionprops_object):
     """

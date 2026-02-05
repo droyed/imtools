@@ -11,5 +11,17 @@ from .read_write import load_image
 from .draw import draw_mask_overlays, text_on_canvas
 from .mask_utils import get_biggest_blob, bbox_from_mask, fill_holes_mask
 from .image_layout import stack_images
+from . import color_gen
+from . import viz
 
-__all__ = ["load_image", "draw_mask_overlays", "text_on_canvas", "get_biggest_blob", "bbox_from_mask", "fill_holes_mask", "stack_images"]
+__all__ = [
+    "load_image",
+    "draw_mask_overlays",
+    "text_on_canvas",
+    "get_biggest_blob",
+    "bbox_from_mask",
+    "fill_holes_mask",
+    "stack_images",
+    "color_gen",
+    "viz",
+]
