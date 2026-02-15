@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "imtools"
-version = "0.1.1"
+version = "0.1.2"
 description = "A simple image loading utility supporting multiple formats"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -29,12 +29,18 @@ dependencies = [
     "torch",
     "pillow",
     "matplotlib",
+    "scikit-image",
+    "pyyaml",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
+]
+test = [
+    "scipy",
+    "ultralytics",
 ]
 
 [tool.setuptools]

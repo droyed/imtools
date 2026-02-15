@@ -1,26 +1,9 @@
 import numpy as np
-import cv2
 from skimage.measure import label, regionprops
 from scipy.ndimage import binary_closing
 from skimage.segmentation import flood_fill
 
 
-def generate_label_image(mask, connectivity=8):
-    """
-    Generates a label image from a binary mask using connected components.
-    
-    Args:
-        mask (np.ndarray): Binary mask to segment.
-        connectivity (int): Pixel connectivity (4 or 8).
-    
-    Returns:
-        np.ndarray: Label image where each connected component has a unique integer label.
-    """
-    # Ensure mask is uint8 for OpenCV
-    mask_uint8 = mask.astype(np.uint8)
-    _, label_image = cv2.connectedComponents(mask_uint8, connectivity=connectivity)
-    
-    return label_image
 
 def _extract_properties(regionprops_object):
     """
@@ -190,3 +173,29 @@ def fill_holes_mask(mask, apply_closing=True, kernel_size=5, pad_length=5):
     output_mask = holes_filled_mask[pad_length:-pad_length, pad_length:-pad_length].copy()
 
     return output_mask
+
+def _get_regions(mask):
+    """Helper to standardize region generation."""
+    labeled_mask = label(mask, background=0)
+    return regionprops(labeled_mask)
+
+def extract_region_metadata(mask, item_size_threshold=10):
+    """
+    Extracts detailed raw data from mask regions, filtering out large arrays.
+    """
+    regions = _get_regions(mask)
+    metadata = []
+    
+    for region in regions:
+        per_region_info = {}
+        # Assuming imtools extracts heavy data
+        info = _extract_info(region)
+        
+        for item_name, item in info.items():
+            # Keep item if it is NOT an array, OR if it is a small array
+            if not isinstance(item, np.ndarray) or item.size < item_size_threshold:
+                per_region_info[item_name] = item
+                
+        metadata.append(per_region_info)
+        
+    return metadata

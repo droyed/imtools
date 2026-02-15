@@ -1,27 +1,40 @@
 """
-imtools - A simple image loading utility supporting multiple formats.
+imtools - Image processing and visualization toolkit.
 
-This package provides utilities for loading images from various sources
-including file paths, PIL Images, NumPy arrays, and PyTorch tensors.
+Core utilities for image conversion, mask operations, converters,
+color generation, and visualization.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 
-from .read_write import load_image
-from .draw import draw_mask_overlays, text_on_canvas
+"""imtools - Image processing and visualization toolkit."""
+
+# Image I/O
+from .formats import pil_to_opencv, opencv_to_pil, to_pil_image, to_numpy_image, imwrite
+
+# Mask operations
 from .mask_utils import get_biggest_blob, bbox_from_mask, fill_holes_mask
-from .image_layout import stack_images
-from . import color_gen
-from . import viz
+
+# Converters
+from .converters import binary_mask_to_label_image
+
+# Benchmarks
+from . import benchmarks
+
+# Visualization
+from .viz_pipeline import create_label_overlay_from_labelimg, overlay_visualize
+from .viz import overlay_viewer
+from .display_utils import show_cv2, show_mpl
+
+# Colors
+from .color_gen import generate_colors
 
 __all__ = [
-    "load_image",
-    "draw_mask_overlays",
-    "text_on_canvas",
-    "get_biggest_blob",
-    "bbox_from_mask",
-    "fill_holes_mask",
-    "stack_images",
-    "color_gen",
-    "viz",
+    "pil_to_opencv", "opencv_to_pil", " to_pil_image", "to_numpy_image", "imwrite",
+    "get_biggest_blob", "bbox_from_mask", "fill_holes_mask",
+    "binary_mask_to_label_image",
+    "create_label_overlay_from_labelimg", "overlay_visualize",
+    "show_cv2", "show_mpl",
+    "generate_colors",
+    "benchmarks",
 ]
