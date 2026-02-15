@@ -28,7 +28,6 @@
 
 ### Changed
 
-- Version bumped from `0.1.1` to `0.2.0`
 - Package restructured from a flat layout (`read_write.py`, `draw.py`, `mask_utils.py`, `image_layout.py`, `color_gen.py`) into proper subpackages
 - `__init__.py` public API updated to re-export symbols from all new subpackages
 - `load_image()` (from `read_write.py`) replaced by `to_numpy_image()` and `to_pil_image()` in `core/formats.py`
