@@ -150,6 +150,12 @@ python -m imtools.benchmarks
 - dearpygui (for interactive overlay viewer)
 - pyyaml
 
+## Access web-based documentation
+
+```bash
+make docs-serve
+```
+
 ## Attributions
 
 Test images located at `assets/` are from the [COCO val2017 dataset](https://cocodataset.org/) (Lin et al., 2015), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
