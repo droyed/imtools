@@ -30,6 +30,9 @@ dependencies = [
     "pillow",
     "matplotlib",
     "scikit-image",
+    "scipy",
+    "pandas",
+    "dearpygui",
     "pyyaml",
 ]
 
@@ -42,9 +45,23 @@ test = [
     "scipy",
     "ultralytics",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
 
 [tool.setuptools]
 package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
+markers = [
+    "slow: marks tests that are slow (deselect with '-m \"not slow\"')",
+    "integration: marks integration tests requiring external resources",
+]

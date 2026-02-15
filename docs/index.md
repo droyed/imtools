@@ -13,15 +13,20 @@ For development:
 pip install -e ".[dev]"
 ```
 
+For documentation:
+```bash
+pip install -e ".[docs]"
+```
+
 ## Package Overview
 
 | Subpackage | Description |
 |------------|-------------|
-| `core` | Data types and image format converters (PIL <-> OpenCV) |
-| `annotations` | YOLO annotation parsing and label formatting |
-| `masks` | Mask operations and label image converters |
-| `viz` | Visualization, color generation, and display utilities |
-| `benchmarks` | Performance benchmarks for mask converters |
+| [`core`](api/core.md) | Data types and image format converters (PIL ↔ OpenCV) |
+| [`annotations`](api/annotations.md) | YOLO annotation parsing and label formatting |
+| [`masks`](api/masks.md) | Mask operations and label image converters |
+| [`viz`](api/viz.md) | Visualization, color generation, and display utilities |
+| [`benchmarks`](api/benchmarks.md) | Performance benchmarks for mask converters |
 
 ## Quick Start
 
@@ -57,9 +62,6 @@ filled = fill_holes_mask(mask)
 
 # Convert masks to label image (N, H, W) -> (H, W)
 label_img = masks_to_label_image(masks_array)
-
-# Convert binary mask to connected components
-label_img = binary_mask_to_label_image(mask)
 ```
 
 ### Annotation Parsing
@@ -84,9 +86,9 @@ label = resolve_label(LabelFormat.PIPE_FULL, ctx)
 
 ```python
 from imtools.viz.pipeline import overlay_visualize
-from imtools.viz.colors import generate_colors, create_color_palette_image
-from imtools.viz.compose import text_on_canvas, stack_images, add_title
+from imtools.viz.colors import generate_colors
 from imtools.viz.display import show_cv2, show_mpl
+from imtools.core.types import BlendConfig
 
 # Generate color palette
 colors = generate_colors(10, method='preset')
@@ -99,41 +101,9 @@ result = overlay_visualize(
     blend_config=BlendConfig.Presets.categorical(),
     title="Detection Results"
 )
-
-# Interactive overlay viewer (requires dearpygui)
-from imtools.viz.overlay_viewer import run_overlay_viewer
-blended_img, settings = run_overlay_viewer(image, label_image)
 ```
 
-For detailed documentation on `overlay_visualize`, see [docs/USAGE_overlay_visualize.md](docs/USAGE_overlay_visualize.md) and [notebooks/imtools_overlay_guide.ipynb](notebooks/imtools_overlay_guide.ipynb).
-
-### Configuration
-
-```python
-from imtools.core.types import BlendConfig, LabelStyle, TitleConfig
-
-# Blend configuration with presets
-config = BlendConfig.Presets.categorical()
-config = BlendConfig.Presets.vibrant()
-config = BlendConfig.Presets.pastel()
-config = BlendConfig.Presets.colorblind_safe()
-
-# Label styling
-style = LabelStyle.Presets.dense_detection()
-style = LabelStyle.Presets.segmentation_mask()
-
-# Title configuration
-title_cfg = TitleConfig.Presets.presentation()
-title_cfg = TitleConfig.Presets.dark_mode()
-```
-
-## Run Demos
-
-Run the demo scripts:
-
-```bash
-python -m demos
-```
+For a detailed guide on `overlay_visualize`, see the [Usage](USAGE_overlay_visualize.md) page.
 
 ## Benchmarks
 
@@ -149,10 +119,6 @@ python -m imtools.benchmarks
 - scikit-image, scipy, pandas
 - dearpygui (for interactive overlay viewer)
 - pyyaml
-
-## Attributions
-
-Test images located at `assets/` are from the [COCO val2017 dataset](https://cocodataset.org/) (Lin et al., 2015), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## License
 

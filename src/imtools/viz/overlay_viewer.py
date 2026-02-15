@@ -14,15 +14,17 @@ Returns:
            containing 'alpha', 'method', and method-specific parameters.
 """
 
+from __future__ import annotations
+
 import os
 import platform
-from typing import Any, Callable
+from typing import Any, Callable, Dict, Optional
 
 import numpy as np
 import cv2
 import dearpygui.dearpygui as dpg
 from PIL import Image
-from imtools.color_gen import generate_colors
+from imtools.viz.colors import generate_colors
 
 # Constants
 MIN_WINDOW_WIDTH = 600
@@ -47,8 +49,8 @@ PRIMARY_WINDOW_TAG = "primary_window"
 WINDOW_HANDLER_TAG = "window_handler"
 
 
-def get_system_font_path():
-    """Try to find a suitable system font path."""
+def get_system_font_path() -> Optional[str]:
+    """Return the path of a suitable system TrueType font, or ``None`` if not found."""
     system = platform.system()
     
     font_candidates = []
@@ -81,8 +83,8 @@ def get_system_font_path():
     return None
 
 
-def create_dark_theme():
-    """Create a minimal global dark theme (zero padding for main window)."""
+def create_dark_theme() -> int:
+    """Create a minimal global DearPyGui dark theme with zero window padding."""
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvAll):
             # Background colors
@@ -132,16 +134,35 @@ def create_dark_theme():
     return theme
 
 
-def create_panel_theme():
-    """Create a specific theme for the sidebar panel (restores padding)."""
+def create_panel_theme() -> int:
+    """Create a DearPyGui theme for the sidebar panel that restores padding."""
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvAll):
             dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 16, 16)
     return theme
 
 
-def calculate_fit_dimensions(image_w, image_h, container_w, container_h, padding=PADDING):
-    """Calculate dimensions to fit image in container while preserving aspect ratio."""
+def calculate_fit_dimensions(
+    image_w: int | float,
+    image_h: int | float,
+    container_w: int | float,
+    container_h: int | float,
+    padding: int | float = PADDING,
+) -> tuple[float, float, float, float]:
+    """Calculate display dimensions to fit an image in a container while preserving aspect ratio.
+
+    Args:
+        image_w: Image width in pixels.
+        image_h: Image height in pixels.
+        container_w: Container width in pixels.
+        container_h: Container height in pixels.
+        padding: Uniform padding applied inside the container on each side.
+
+    Returns:
+        Tuple ``(display_w, display_h, x_offset, y_offset)`` where the offset
+        values center the scaled image within the container.  Returns
+        ``(0, 0, 0, 0)`` if the available area is zero.
+    """
     available_w = container_w - 2 * padding
     available_h = container_h - 2 * padding
 
@@ -201,7 +222,7 @@ MATPLOTLIB_COLORMAPS = {
 COLORMAP_CATEGORIES = list(MATPLOTLIB_COLORMAPS.keys())
 
 # Method Parameters
-METHOD_PARAMS = {
+METHOD_PARAMS: Dict[str, Any] = {
     'preset': None,
     'hsv': {
         'label': 'saturation',
@@ -248,7 +269,35 @@ METHOD_LIST = list(METHOD_PARAMS.keys())
 
 
 class OverlayViewer:
-    """Handles the overlay visualization and Dear PyGui interaction."""
+    """Interactive DearPyGui viewer for real-time label-overlay visualization.
+
+    Displays a source image blended with a colored label overlay and
+    exposes GUI controls for adjusting the blend alpha and the color-generation
+    method/parameters.  Keyboard arrow keys support navigation within focused
+    combo boxes and sliders.
+
+    Args:
+        img: RGB source image of shape ``(H, W, 3)`` and dtype ``uint8``.
+        label_image: 2-D integer label map of shape ``(H, W)``.  Sparse
+            label values (e.g. COCO IDs) are automatically remapped to a
+            contiguous range to prevent memory issues.
+        initial_method: Starting color-generation method.  Must be one of
+            ``'preset'``, ``'hsv'``, ``'golden_ratio'``, ``'kmeans'``,
+            ``'colormap'``, or ``'colormap_extended'``.
+        initial_saturation: Optional starting saturation value for
+            HSV-based methods.
+        initial_category: Optional starting colormap category name for
+            colormap-based methods.
+        initial_colormap: Optional starting colormap name.
+
+    Example:
+        >>> import numpy as np
+        >>> img = np.zeros((256, 256, 3), dtype=np.uint8)
+        >>> lbl = np.zeros((256, 256), dtype=np.int32)
+        >>> lbl[50:150, 50:150] = 1
+        >>> viewer = OverlayViewer(img, lbl)
+        >>> blended, settings = viewer.run(initial_alpha=0.4)
+    """
 
     @staticmethod
     def _validate_inputs(img: np.ndarray, label_image: np.ndarray, initial_method: str) -> None:
@@ -322,8 +371,10 @@ class OverlayViewer:
         return unique_labels, contiguous_labels
 
     def __init__(self, img: np.ndarray, label_image: np.ndarray,
-                 initial_method: str = 'colormap', initial_saturation: float = None,
-                 initial_category: str = None, initial_colormap: str = None):
+                 initial_method: str = 'colormap',
+                 initial_saturation: Optional[float] = None,
+                 initial_category: Optional[str] = None,
+                 initial_colormap: Optional[str] = None):
         
         # Input validation
         self._validate_inputs(img, label_image, initial_method)
@@ -352,15 +403,15 @@ class OverlayViewer:
         self._buffer_view = self._display_buffer.reshape((self.h, self.w, 4))
 
         # Current state
-        self.current_method = initial_method
-        self.current_param_label = None
-        self.current_param_value = None
-        self.current_param_index = 0
-        self.current_third_label = None
-        self.current_third_value = None
-        self.current_third_index = 0
-        self.current_alpha = 0.3
-        self._lut_float = None
+        self.current_method: str = initial_method
+        self.current_param_label: Optional[str] = None
+        self.current_param_value: Any = None
+        self.current_param_index: int = 0
+        self.current_third_label: Optional[str] = None
+        self.current_third_value: Optional[str] = None
+        self.current_third_index: int = 0
+        self.current_alpha: float = 0.3
+        self._lut_float: Optional[np.ndarray] = None
 
         self._init_param_from_method(initial_method, initial_saturation, initial_category, initial_colormap)
         self._compute_lut()
@@ -383,8 +434,14 @@ class OverlayViewer:
         self.third_group_tag = "third_group"
         self.alpha_slider_tag = "alpha_slider"
 
-    def _init_param_from_method(self, method: str, initial_saturation=None,
-                                 initial_category=None, initial_colormap=None):
+    def _init_param_from_method(
+        self,
+        method: str,
+        initial_saturation: Optional[float] = None,
+        initial_category: Optional[str] = None,
+        initial_colormap: Optional[str] = None,
+    ) -> None:
+        """Initialise current parameter state from the selected method config."""
         config = METHOD_PARAMS.get(method)
         if config is None:
             self.current_param_label = None
@@ -420,6 +477,7 @@ class OverlayViewer:
             self.current_third_index = 0
 
     def _calculate_initial_display_size(self) -> tuple[int, int]:
+        """Return the initial ``(display_w, display_h)`` capped at ``max_display_size``."""
         scale = min(self.max_display_size / self.w, self.max_display_size / self.h, 1.0)
         return int(self.w * scale), int(self.h * scale)
 
@@ -476,12 +534,13 @@ class OverlayViewer:
         self._redraw_image(window_width, window_height)
 
     def _compute_lut(self) -> None:
+        """Recompute the float32 colour look-up table from the current method/params."""
         if not self.has_labels:
             self._lut_float = None
             return
 
         config = METHOD_PARAMS.get(self.current_method)
-        kwargs = {}
+        kwargs: Dict[str, Any] = {}
         if config is not None:
             if config.get('has_third_dropdown', False):
                 kwargs['colormap'] = self.current_third_value
@@ -520,6 +579,7 @@ class OverlayViewer:
         return self._display_buffer
 
     def _cycle_combo(self, combo_tag: str, items: list[str], values: list[Any], direction: int, callback: Callable) -> None:
+        """Advance a combo box by ``direction`` steps (+1 or -1) and fire ``callback``."""
         current_display = dpg.get_value(combo_tag)
         try:
             current_index = items.index(current_display)
@@ -532,6 +592,7 @@ class OverlayViewer:
         callback(combo_tag, new_display)
 
     def on_key_press(self, sender: int, app_data: int) -> None:
+        """Handle keyboard arrow-key navigation for focused controls."""
         key = app_data
         
         if dpg.is_item_hovered(self.alpha_slider_tag):
@@ -566,6 +627,7 @@ class OverlayViewer:
                 self._cycle_combo(self.third_combo_tag, colormaps_in_category, colormaps_in_category, direction, self.on_third_change)
 
     def _refresh_display(self) -> None:
+        """Reblend and push updated texture data to DearPyGui."""
         texture_data = self.blend(self.current_alpha)
         dpg.set_value(self.texture_tag, texture_data)
         try:
@@ -597,7 +659,8 @@ class OverlayViewer:
             blended = self.img
         return Image.fromarray(blended)
 
-    def get_result(self) -> dict:
+    def get_result(self) -> tuple[Image.Image, dict]:
+        """Return ``(blended_pil_image, settings_dict)`` with the current viewer state."""
         settings = {'alpha': self.current_alpha, 'method': self.current_method}
         config = METHOD_PARAMS.get(self.current_method)
         if config is not None:
@@ -608,11 +671,13 @@ class OverlayViewer:
                 settings['saturation'] = self.current_param_value
         return self._get_blended_pil(), settings
 
-    def on_alpha_change(self, sender: int, app_data: float) -> None:
+    def on_alpha_change(self, sender: Any, app_data: float) -> None:
+        """Callback fired when the alpha slider value changes."""
         self.current_alpha = app_data
         self._refresh_display()
 
     def on_method_change(self, sender: int, app_data: str) -> None:
+        """Callback fired when the method combo selection changes."""
         self.current_method = app_data
         config = METHOD_PARAMS.get(self.current_method)
 
@@ -653,6 +718,7 @@ class OverlayViewer:
         self._refresh_display()
 
     def on_param_change(self, sender: int, app_data: str) -> None:
+        """Callback fired when the secondary parameter combo selection changes."""
         config = METHOD_PARAMS.get(self.current_method)
         if config is None: return
 
@@ -672,6 +738,7 @@ class OverlayViewer:
         self._refresh_display()
 
     def on_third_change(self, sender: int, app_data: str) -> None:
+        """Callback fired when the colormap combo selection changes."""
         config = METHOD_PARAMS.get(self.current_method)
         if config is None or not config.get('has_third_dropdown', False): return
         
@@ -738,10 +805,10 @@ class OverlayViewer:
         )
         dpg.add_spacer(height=5)
 
-    def _build_param_combo(self, initial_config: dict | None, show_param: bool,
+    def _build_param_combo(self, initial_config: Optional[Dict[str, Any]], show_param: bool,
                            width: int) -> None:
         """Build the parameter combo box (saturation/category)."""
-        if show_param:
+        if show_param and initial_config is not None:
             param_label = initial_config['label']
             param_options = initial_config['options']
             param_default = param_options[self.current_param_index]
@@ -761,12 +828,12 @@ class OverlayViewer:
             )
         dpg.add_spacer(height=5)
 
-    def _build_third_combo(self, initial_config: dict | None, width: int) -> None:
+    def _build_third_combo(self, initial_config: Optional[Dict[str, Any]], width: int) -> None:
         """Build the third combo box (colormap selection)."""
-        show_third = (initial_config is not None and 
+        show_third = (initial_config is not None and
                       initial_config.get('has_third_dropdown', False))
-        
-        if show_third:
+
+        if show_third and initial_config is not None:
             third_label = initial_config['third_label']
             colormaps_in_category = MATPLOTLIB_COLORMAPS[self.current_param_value]
             third_default = colormaps_in_category[self.current_third_index]
@@ -855,7 +922,7 @@ class OverlayViewer:
         dpg.bind_item_handler_registry(PRIMARY_WINDOW_TAG, WINDOW_HANDLER_TAG)
 
     def _configure_viewport(self, window_w: int, window_h: int) -> None:
-        """Configure and display the viewport."""
+        """Create, configure, and show the DearPyGui viewport."""
         dpg.create_viewport(
             title="Mask Overlay Viewer",
             width=window_w,
@@ -901,12 +968,44 @@ class OverlayViewer:
             dpg.destroy_context()
 
 
-def run_overlay_viewer(img: np.ndarray, label_image: np.ndarray,
-                       initial_method: str = 'colormap',
-                       initial_saturation: float = None,
-                       initial_category: str = None,
-                       initial_colormap: str = None,
-                       initial_alpha: float = 0.3) -> tuple[Image.Image, dict]:
+def run_overlay_viewer(
+    img: np.ndarray,
+    label_image: np.ndarray,
+    initial_method: str = 'colormap',
+    initial_saturation: Optional[float] = None,
+    initial_category: Optional[str] = None,
+    initial_colormap: Optional[str] = None,
+    initial_alpha: float = 0.3,
+) -> tuple[Image.Image, dict]:
+    """Launch the interactive overlay viewer and return the final result.
+
+    Convenience wrapper around :class:`OverlayViewer` that constructs the
+    viewer and calls :meth:`~OverlayViewer.run` in a single call.
+
+    Args:
+        img: RGB source image of shape ``(H, W, 3)`` and dtype ``uint8``.
+        label_image: 2-D integer label map of shape ``(H, W)``.
+        initial_method: Starting color-generation method.  Must be one of
+            ``'preset'``, ``'hsv'``, ``'golden_ratio'``, ``'kmeans'``,
+            ``'colormap'``, or ``'colormap_extended'``.
+        initial_saturation: Optional starting saturation for HSV-based methods.
+        initial_category: Optional starting colormap category name.
+        initial_colormap: Optional starting colormap name.
+        initial_alpha: Starting alpha blend value in ``[0.0, 1.0]``.
+
+    Returns:
+        Tuple ``(blended_image, settings)`` where ``blended_image`` is a
+        :class:`PIL.Image.Image` reflecting the user's final settings, and
+        ``settings`` is a :class:`dict` with keys ``'alpha'``, ``'method'``,
+        and method-specific parameters (``'saturation'`` or ``'colormap'``).
+
+    Example:
+        >>> import numpy as np
+        >>> img = np.zeros((256, 256, 3), dtype=np.uint8)
+        >>> lbl = np.zeros((256, 256), dtype=np.int32)
+        >>> lbl[50:200, 50:200] = 1
+        >>> pil_img, settings = run_overlay_viewer(img, lbl)
+    """
     # CHANGED: Passed label_image directly to constructor
     viewer = OverlayViewer(img, label_image, initial_method,
                            initial_saturation, initial_category, initial_colormap)

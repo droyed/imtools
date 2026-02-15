@@ -1,6 +1,6 @@
 import os
 import matplotlib.pyplot as plt
-from imtools.color_gen import generate_colors, create_color_palette_image
+from imtools import generate_colors, create_color_palette_image
 from demo_config import get_output_dir
 
 

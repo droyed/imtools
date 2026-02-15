@@ -1,3 +1,5 @@
+"""Entry point for running benchmarks via ``python -m imtools.benchmarks``."""
+
 from .benchmark_converters import run_benchmark_scenarios
 
 if __name__ == '__main__':

@@ -1,18 +1,33 @@
-from PIL import Image, ImageDraw, ImageFont
-from typing import List, Optional, Union
+"""Image composition utilities for the imtools package.
 
-from .formats import to_pil_image
-from .common import TitleConfig
+Provides :func:`text_on_canvas` (auto-sized text image),
+:func:`stack_images` (multi-image stacking), and :func:`add_title`
+(title bar compositor).
+"""
+
+from __future__ import annotations
+
+from PIL import Image, ImageDraw, ImageFont
+from typing import List, Optional, Tuple, Union
+
+# Pillow >= 9.1 moved resampling filters into Image.Resampling
+try:
+    _LANCZOS = Image.Resampling.LANCZOS
+except AttributeError:
+    _LANCZOS = _LANCZOS  # type: ignore[attr-defined]
+
+from imtools.core.formats import to_pil_image
+from imtools.core.types import TitleConfig
 
 
 def text_on_canvas(
     text: Union[str, List[str]],
     padding: int = 20,
     min_width: Optional[int] = None,
-    bg_color=(30, 30, 30, 255),
-    text_color=(255, 255, 255),
+    bg_color: Union[Tuple, str] = (30, 30, 30, 255),
+    text_color: Union[Tuple, str] = (255, 255, 255),
     text_opacity: int = 255,
-    font_path="DejaVuSans.ttf",
+    font_path: str = "DejaVuSans.ttf",
     font_size: int = 40,
     line_spacing: int = 10,
     align: str = "left",        # "left", "center", "right"
@@ -21,15 +36,48 @@ def text_on_canvas(
     stroke_width: int = 0,
     stroke_color: Optional[tuple] = None,
     output_rgb: bool = False,
-):
-    """
-    Draw an auto-sized canvas based on text metrics (no wrapping).
+) -> Image.Image:
+    """Draw text on an auto-sized RGBA canvas.
 
-    Features:
-    - Width grows to fit the widest line
-    - Optional minimum width
-    - Optional crop tightly to text bounds
-    - Optional text-only transparent output
+    The canvas width expands to fit the widest text line.  Height is
+    computed from per-line metrics plus spacing and padding.
+
+    Args:
+        text: Text to render.  Newlines (``\\n``) or a list of strings
+            define separate lines.
+        padding: Uniform padding in pixels around the text block.
+        min_width: Minimum canvas width in pixels.  ``None`` means no
+            minimum (canvas matches the text width).
+        bg_color: Background RGBA fill color.
+        text_color: RGB text color (opacity set via ``text_opacity``).
+        text_opacity: Text alpha in ``[0, 255]``.
+        font_path: TrueType font path passed to
+            :func:`PIL.ImageFont.truetype`.
+        font_size: Font size in points.
+        line_spacing: Extra vertical pixels between text lines.
+        align: Horizontal text alignment — ``'left'``, ``'center'``,
+            or ``'right'``.
+        crop_to_text: If ``True``, crop the canvas tightly around the
+            rendered text with a small margin.
+        transparent_text_only: If ``True``, use a fully-transparent
+            background (returns RGBA with only the text pixels filled).
+        stroke_width: Outline width around each character.
+        stroke_color: RGBA outline color tuple.  ``None`` for no outline.
+        output_rgb: If ``True``, flatten alpha onto ``bg_color`` and return
+            an RGB image.
+
+    Returns:
+        Rendered PIL image.  Mode is ``'RGBA'`` unless ``output_rgb=True``,
+        in which case mode is ``'RGB'``.
+
+    Raises:
+        AssertionError: If ``align`` is not one of the valid options or
+            ``text_opacity`` is out of range.
+
+    Example:
+        >>> canvas = text_on_canvas("Hello\\nWorld", font_size=20)
+        >>> canvas.mode
+        'RGBA'
     """
 
     # Convert string to list if necessary
@@ -136,10 +184,15 @@ def text_on_canvas(
     return result
 
 
-def stack_images(images, align="start", mode="RGBA", direction="vertical"):
+def stack_images(
+    images: List,
+    align: str = "start",
+    mode: str = "RGBA",
+    direction: str = "vertical",
+) -> Image.Image:
     """
     Stack multiple images vertically or horizontally.
-    
+
     Args:
         images: List of image sources to stack. Inputs can be:
             - PIL.Image.Image: Passed through unchanged
@@ -166,38 +219,38 @@ def stack_images(images, align="start", mode="RGBA", direction="vertical"):
               - "I": 32-bit signed integer pixels
               - "F": 32-bit floating point pixels
         direction: Stacking direction - "vertical" (or "v") or "horizontal" (or "h")
-    
+
     Returns:
         Combined Image.Image object
     """
     # Input validation
     if not isinstance(images, (list, tuple)) or len(images) < 2:
         raise ValueError("images must be a list or tuple with at least 2 images")
-    
+
     valid_alignments = {"start", "end", "center", "resize", "resize_to_max", "resize_to_min", "resize_to_mean"}
     if align not in valid_alignments:
         raise ValueError(f"Invalid align value '{align}'. Must be one of: {valid_alignments}")
-    
+
     valid_modes = {"auto", "1", "L", "P", "RGB", "RGBA", "CMYK", "YCbCr", "LAB", "HSV", "I", "F"}
     if mode not in valid_modes:
         raise ValueError(f"Invalid mode value '{mode}'. Must be one of: {valid_modes}")
-    
+
     valid_directions = {"vertical", "v", "horizontal", "h"}
     if direction not in valid_directions:
         raise ValueError(f"Invalid direction value '{direction}'. Must be one of: {valid_directions}")
-    
+
     is_vertical = direction in {"vertical", "v"}
     resize_options = {"resize", "resize_to_max", "resize_to_min", "resize_to_mean"}
 
     # Convert images to PIL images
     images = [to_pil_image(img) for img in images]
-    
+
     # Collect relevant dimensions
     if is_vertical:
         dimensions = [img.width for img in images]
     else:
         dimensions = [img.height for img in images]
-    
+
     # Calculate target dimension for resize options
     if align in resize_options:
         if align in {"resize", "resize_to_max"}:
@@ -206,28 +259,28 @@ def stack_images(images, align="start", mode="RGBA", direction="vertical"):
             target_dimension = min(dimensions)
         elif align == "resize_to_mean":
             target_dimension = int(sum(dimensions) / len(dimensions))
-    
+
     # Handle resize options (pre-processing)
     if align in resize_options:
         processed_images = []
         for img in images:
             if is_vertical and img.width != target_dimension:
                 new_height = int(img.height * (target_dimension / img.width))
-                img = img.resize((target_dimension, new_height), Image.LANCZOS)
+                img = img.resize((target_dimension, new_height), _LANCZOS)
             elif not is_vertical and img.height != target_dimension:
                 new_width = int(img.width * (target_dimension / img.height))
-                img = img.resize((new_width, target_dimension), Image.LANCZOS)
+                img = img.resize((new_width, target_dimension), _LANCZOS)
             processed_images.append(img)
     else:
         processed_images = list(images)
-    
+
     # Determine output mode
     if mode == "auto":
         has_alpha = any(img.mode == "RGBA" for img in processed_images)
         output_mode = "RGBA" if has_alpha else processed_images[0].mode
     else:
         output_mode = mode
-    
+
     # Calculate canvas dimensions
     if is_vertical:
         canvas_width = max(img.width for img in processed_images)
@@ -235,7 +288,7 @@ def stack_images(images, align="start", mode="RGBA", direction="vertical"):
     else:
         canvas_width = sum(img.width for img in processed_images)
         canvas_height = max(img.height for img in processed_images)
-    
+
     # Calculate positions for each image
     positions = []
     current_pos = 0
@@ -258,12 +311,12 @@ def stack_images(images, align="start", mode="RGBA", direction="vertical"):
                 y = (canvas_height - img.height) // 2
             positions.append((current_pos, y))
             current_pos += img.width
-    
+
     # Create and compose final image
     stacked = Image.new(output_mode, (canvas_width, canvas_height))
     for img, pos in zip(processed_images, positions):
         stacked.paste(img, pos)
-    
+
     return stacked
 
 
@@ -304,4 +357,3 @@ def add_title(
     )
 
     return stack_images([title_frame, image], "resize_to_max", direction="v")
-

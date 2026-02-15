@@ -9,7 +9,7 @@ def get_coins_sample(threshold=150, kernel_size=7):
     """
     from skimage import data
     from scipy.ndimage import binary_dilation, binary_erosion
-    from imtools.mask_utils import fill_holes_mask 
+    from imtools import fill_holes_mask 
 
     img = data.coins()
     mask = img > threshold
@@ -44,7 +44,7 @@ def get_pedestrian_sample_yolo():
     imgpath = 'assets/person_and_bike_188.png'
     assert os.path.exists(imgpath)
     
-    model_path = 'checkpoint/yolo11n-seg.pt'
+    model_path = 'yolo11n-seg.pt'
     model = YOLO(model_path)
     results = model.predict(source=str(imgpath), save=False, conf=0.5)[0]    
     img3D = to_numpy_image(imgpath, force_3d=True)
@@ -73,14 +73,17 @@ def get_pedestrian_sample_sam():
     # sam3 config
     conf_thresh = 0.4
     classes = ["person", "bus", "car", "glasses", "bicycle", "motorcycle"]
-    #classes = ["person"]
+
+    model_checkpoint = 'checkpoint/sam3.pt'
+    assert os.path.exists(model_checkpoint), f"Model checkpoint not found at {model_checkpoint}"
+    assert os.path.exists(bpe_path), f"BPE file not found at {bpe_path}"
     
     # Initialize predictor with configuration
     overrides = dict(
         conf=conf_thresh,
         task="segment",
         mode="predict",
-        model="checkpoint/sam3.pt",
+        model=model_checkpoint,
         half=True,  # Use FP16 for faster inference
         save=False,
     )
