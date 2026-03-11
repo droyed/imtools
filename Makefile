@@ -28,7 +28,7 @@ docs-build:
 	mkdocs build
 
 demo:
-	$(PYTHON) src/imtools/demos_overlay.py
+	$(PYTHON) -m demos
 
 clean:
 	@echo "Cleaning up..."
