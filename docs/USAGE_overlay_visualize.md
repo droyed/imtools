@@ -18,17 +18,17 @@ Choose the method that matches your input:
 **From a binary mask:**
 
 ```python
-from imtools.segmentation import create_label_image_from_binary_mask
+from imtools.masks.converters import binary_mask_to_label_image
 
-label_image = create_label_image_from_binary_mask(mask)
+label_image = binary_mask_to_label_image(mask)
 ```
 
 **From YOLO/SAM results** (`ultralytics.engine.results.Results`):
 
 ```python
-from imtools.segmentation import create_label_image_from_yolo_results
+from imtools.annotations.yolo import yolo_to_label_image
 
-label_image = create_label_image_from_yolo_results(results)
+label_image = yolo_to_label_image(results)
 ```
 
 ## Adding Annotations

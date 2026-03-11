@@ -3,7 +3,7 @@ PYTHON := python3
 .PHONY: install lint test clean help docs-serve docs-build
 
 install:
-	$(PYTHON) -m pip install -e ".[dev,test]"
+	$(PYTHON) -m pip install -e ".[dev,test,docs]"
 
 lint:
 	$(PYTHON) -m ruff check .
@@ -22,10 +22,10 @@ help:
 	@echo "  make clean       - Remove build artifacts, python cache, and demo outputs"
 
 docs-serve:
-	mkdocs serve
+	$(PYTHON) -m mkdocs serve
 
 docs-build:
-	mkdocs build
+	$(PYTHON) -m mkdocs build
 
 demo:
 	$(PYTHON) -m demos
