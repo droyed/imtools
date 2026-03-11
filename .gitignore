@@ -65,13 +65,6 @@ venv.bak/
 .DS_Store
 Thumbs.db
 
-# Project specific
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.bmp
-
 # Scaffold package entries (added by customize_scaffold.sh)
 # Scaffold Package - AI IDE environment setup files
 .cursorrules
